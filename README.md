@@ -62,7 +62,6 @@ sudo pip3 install adafruit-circuitpython-dht tb-device-mqtt flask matplotlib gun
 * Create config.json in ~/temp_humidity_monitor:
 
 ```json
-Copy
 {
     "access_token": "YOUR_THINGSBOARD_ACCESS_TOKEN",
     "gpio_pin": 22
