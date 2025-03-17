@@ -27,13 +27,6 @@ sudo apt install libgpiod2 -y
 # Install gunicorn for running the flask app
 pip3 install gunicorn
 
-# Install papirus for e-ink display
-sudo apt-get install python3-pil python3-smbus python3-dateutil -y
-git clone --depth=1 https://github.com/PiSupply/PaPiRus.git
-cd PaPiRus
-sudo python3 setup.py install
-sudo papirus-setup  # Follow prompts to configure your screen size (e.g., 2.0" or 2.7")
-
 # Create directory structure
 mkdir -p ~/temp_humidity_monitor/static ~/temp_humidity_monitor/templates
 
