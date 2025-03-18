@@ -191,5 +191,5 @@ This project is unlicensed—use it as you see fit!
 
 ## Notes
 
-* Paths: I assumed /home/pi—replace with /home/user if that’s your user.
+* Paths: I assumed /home/pi —replace with /home/user if that’s your user.
 * Customization: Add sections like “Hardware Notes” or “Future Improvements” if you plan to expand.
