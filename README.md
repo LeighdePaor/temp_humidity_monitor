@@ -33,7 +33,7 @@ Connect the DHT22 to the Raspberry Pi 2B:
 
 ### Installation
 
-1; Clone the Repository:
+1. Clone the Repository:
 
 ```bash
 git clone https://github.com/yourusername/temp_humidity_monitor.git
@@ -42,7 +42,7 @@ cd temp_humidity_monitor
 
 Replace yourusername with your GitHub username if hosted there.
 
-2; Install Dependencies
+2. Install Dependencies
 
 * Update the package list and install required packages:
 
@@ -57,7 +57,7 @@ sudo apt install python3-pip python3-dev sqlite3 -y
 sudo pip3 install adafruit-circuitpython-dht tb-device-mqtt flask matplotlib gunicorn
 ```
 
-3; Configure the Project:
+3. Configure the Project:
 
 * Create config.json in ~/temp_humidity_monitor:
 
@@ -70,7 +70,7 @@ sudo pip3 install adafruit-circuitpython-dht tb-device-mqtt flask matplotlib gun
 
 * Replace YOUR_THINGSBOARD_ACCESS_TOKEN with your ThingsBoard device access token (from demo.thingsboard.io).
 
-4; Set Up SQLite Database:
+4. Set Up SQLite Database:
 
 * The database (temp_humidity.db) is created automatically on first run.
 
@@ -78,7 +78,7 @@ sudo pip3 install adafruit-circuitpython-dht tb-device-mqtt flask matplotlib gun
 
 Deploy as background services:
 
-1; Sensor Service:
+1. Sensor Service:
 
 ```bash
 sudo nano /etc/systemd/system/temp_monitor_sensor.service
@@ -105,7 +105,7 @@ WantedBy=multi-user.target
 
 Adjust User and paths if not using pi or /home/pi.
 
-2; Web Service:
+2. Web Service:
 
 ```bash
 sudo nano /etc/systemd/system/temp_monitor_web.service
@@ -132,7 +132,7 @@ WantedBy=multi-user.target
 
 Adjust paths if Gunicorn is installed elsewhere (check with which gunicorn).
 
-3; Enable and Start Services:
+3. Enable and Start Services:
 
 ```bash
 sudo systemctl daemon-reload
