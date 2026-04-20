@@ -121,6 +121,34 @@ sudo bash setup.sh
 
 - [https://\<your-domain\>/]("")
 
+## Manual SSL Certificate (If DNS Was Not Ready During setup.sh)
+
+If `setup.sh` skipped or failed certificate issuance, run this on the Pi after DNS is live.
+
+```bash
+cd ~/temp_humidity_monitor
+
+DOMAIN=$(jq -r '.domain' sensitive.json)
+EMAIL=$(jq -r '.letsencrypt_email' sensitive.json)
+
+# Confirm public DNS resolves before requesting a cert
+dig +short A "$DOMAIN" @1.1.1.1
+dig +short AAAA "$DOMAIN" @1.1.1.1
+
+sudo certbot --nginx \
+  --non-interactive \
+  --agree-tos \
+  --redirect \
+  --hsts \
+  --domain "$DOMAIN" \
+  --email "$EMAIL"
+
+sudo certbot renew --dry-run
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+If DNS is not configured yet, `dig` returns empty output or `NXDOMAIN`. Create your DNS record first, then re-run the commands above.
+
 ## Deployment Notes
 
 setup.sh performs full server setup in one run:
