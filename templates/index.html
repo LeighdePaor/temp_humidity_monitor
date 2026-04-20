@@ -1,51 +1,284 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Temp & Humidity Monitor</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ monitor_name }} — Temp &amp; Humidity</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <style>
-        .latest-reading {
-            margin-top: 20px;
-            font-size: 18px;
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: system-ui, sans-serif;
+            background: #0f1117;
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 1.5rem;
         }
-        .monitor-name {
-            font-weight: bold;
-            font-size: 20px;
+        header {
+            display: flex;
+            align-items: baseline;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        h1 { font-size: 1.4rem; font-weight: 600; }
+        .badge {
+            font-size: 0.75rem;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 9999px;
+            padding: 0.2rem 0.7rem;
+            color: #94a3b8;
+        }
+        .cards {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.75rem;
+            padding: 1rem 1.5rem;
+            flex: 1;
+            min-width: 160px;
+        }
+        .card .label { font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.25rem; }
+        .card .value { font-size: 2rem; font-weight: 700; }
+        .card.temp .value { color: #fb923c; }
+        .card.hum  .value { color: #38bdf8; }
+        .card .ts   { font-size: 0.7rem; color: #64748b; margin-top: 0.25rem; }
+
+        .controls {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            margin-bottom: 1rem;
+        }
+        .controls label {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+        .controls input[type="datetime-local"],
+        .controls select {
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 0.5rem;
+            color: #e2e8f0;
+            padding: 0.4rem 0.6rem;
+            font-size: 0.85rem;
+        }
+        button {
+            background: #3b82f6;
+            color: #fff;
+            border: none;
+            border-radius: 0.5rem;
+            padding: 0.45rem 1.1rem;
+            font-size: 0.85rem;
+            cursor: pointer;
+            align-self: flex-end;
+        }
+        button:hover { background: #2563eb; }
+        .chart-wrap {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.75rem;
+            padding: 1rem;
+            position: relative;
+        }
+        #status {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-bottom: 0.5rem;
+            min-height: 1rem;
         }
     </style>
 </head>
 <body>
-    <h1>Temperature & Humidity Monitor</h1>
-    
-    <!-- Monitor Name -->
-    <div class="monitor-name">
-        Monitor: {{ monitor_name }}
+<header>
+    <h1>🌡 Temp &amp; Humidity Monitor</h1>
+    <span class="badge">{{ monitor_name }}</span>
+</header>
+
+<div class="cards">
+    <div class="card temp" id="card-temp">
+        <div class="label">Temperature</div>
+        <div class="value" id="val-temp">
+            {% if latest %}{{ "%.1f"|format(latest.temperature) }}°C{% else %}—{% endif %}
+        </div>
+        <div class="ts" id="val-ts">
+            {% if latest %}{{ latest.timestamp }}{% endif %}
+        </div>
     </div>
-    
-    <!-- Latest Reading -->
-    {% if latest_reading %}
-        <div class="latest-reading">
-            Latest Reading ({{ latest_reading.timestamp }}): 
-            Temperature: {{ latest_reading.temperature }}°C, 
-            Humidity: {{ latest_reading.humidity }}%
+    <div class="card hum" id="card-hum">
+        <div class="label">Humidity</div>
+        <div class="value" id="val-hum">
+            {% if latest %}{{ "%.1f"|format(latest.humidity) }}%{% else %}—{% endif %}
         </div>
-    {% else %}
-        <div class="latest-reading">
-            No readings available yet.
-        </div>
-    {% endif %}
-    
-    <!-- Plot Form -->
-    <form method="POST">
-        <label>Start Date:</label>
-        <input type="datetime-local" name="start_date" required>
-        <label>End Date:</label>
-        <input type="datetime-local" name="end_date" required>
-        <input type="submit" value="Generate Plot">
-    </form>
-    
-    <!-- Plot Display -->
-    {% if plot_url %}
-        <img src="{{ url_for('static', filename='plot.png') }}" alt="Temperature and Humidity Plot">
-    {% endif %}
+    </div>
+</div>
+
+<div class="controls">
+    <label>Preset
+        <select id="preset">
+            <option value="1">Last hour</option>
+            <option value="6">Last 6 hours</option>
+            <option value="24" selected>Last 24 hours</option>
+            <option value="168">Last 7 days</option>
+            <option value="custom">Custom…</option>
+        </select>
+    </label>
+    <label id="wrap-start" style="display:none">Start
+        <input type="datetime-local" id="start">
+    </label>
+    <label id="wrap-end" style="display:none">End
+        <input type="datetime-local" id="end">
+    </label>
+    <button onclick="loadChart()">Update chart</button>
+</div>
+
+<div class="chart-wrap">
+    <div id="status">Loading…</div>
+    <canvas id="chart"></canvas>
+</div>
+
+<script>
+const preset = document.getElementById('preset');
+const wrapStart = document.getElementById('wrap-start');
+const wrapEnd   = document.getElementById('wrap-end');
+
+preset.addEventListener('change', () => {
+    const custom = preset.value === 'custom';
+    wrapStart.style.display = custom ? '' : 'none';
+    wrapEnd.style.display   = custom ? '' : 'none';
+    if (!custom) loadChart();
+});
+
+function isoLocal(d) {
+    // Returns datetime-local string in local time
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function getRange() {
+    if (preset.value === 'custom') {
+        return { start: document.getElementById('start').value,
+                 end:   document.getElementById('end').value };
+    }
+    const end   = new Date();
+    const start = new Date(end - preset.value * 3600 * 1000);
+    return { start: isoLocal(start), end: isoLocal(end) };
+}
+
+let chart = null;
+
+async function loadChart() {
+    const status = document.getElementById('status');
+    const { start, end } = getRange();
+    status.textContent = 'Loading…';
+    try {
+        const res = await fetch(`/api/readings?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        status.textContent = `${data.length} readings from ${start.replace('T',' ')} to ${end.replace('T',' ')}`;
+        renderChart(data);
+    } catch (e) {
+        status.textContent = `Error: ${e.message}`;
+    }
+}
+
+function renderChart(data) {
+    const labels = data.map(r => new Date(r.timestamp));
+    const temps  = data.map(r => r.temperature);
+    const hums   = data.map(r => r.humidity);
+
+    if (chart) chart.destroy();
+
+    const ctx = document.getElementById('chart').getContext('2d');
+    chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Temperature (°C)',
+                    data: temps,
+                    borderColor: '#fb923c',
+                    backgroundColor: 'rgba(251,146,60,0.08)',
+                    borderWidth: 2,
+                    pointRadius: data.length < 200 ? 3 : 0,
+                    tension: 0.3,
+                    yAxisID: 'yTemp',
+                },
+                {
+                    label: 'Humidity (%)',
+                    data: hums,
+                    borderColor: '#38bdf8',
+                    backgroundColor: 'rgba(56,189,248,0.08)',
+                    borderWidth: 2,
+                    pointRadius: data.length < 200 ? 3 : 0,
+                    tension: 0.3,
+                    yAxisID: 'yHum',
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { color: '#cbd5e1' } },
+                tooltip: { backgroundColor: '#1e293b', titleColor: '#e2e8f0', bodyColor: '#94a3b8' },
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    ticks: { color: '#64748b' },
+                    grid:  { color: '#1e293b' },
+                },
+                yTemp: {
+                    type: 'linear',
+                    position: 'left',
+                    ticks: { color: '#fb923c' },
+                    grid:  { color: '#334155' },
+                    title: { display: true, text: '°C', color: '#fb923c' },
+                },
+                yHum: {
+                    type: 'linear',
+                    position: 'right',
+                    ticks: { color: '#38bdf8' },
+                    grid:  { drawOnChartArea: false },
+                    title: { display: true, text: '%', color: '#38bdf8' },
+                    min: 0, max: 100,
+                },
+            },
+        },
+    });
+}
+
+async function refreshLatest() {
+    try {
+        const res = await fetch('/api/latest');
+        if (!res.ok) return;
+        const r = await res.json();
+        if (r) {
+            document.getElementById('val-temp').textContent = r.temperature.toFixed(1) + '°C';
+            document.getElementById('val-hum').textContent  = r.humidity.toFixed(1) + '%';
+            document.getElementById('val-ts').textContent   = r.timestamp;
+        }
+    } catch (_) {}
+}
+
+// Initial load
+loadChart();
+// Refresh latest reading every 60 s and chart every 5 min
+setInterval(refreshLatest, 60_000);
+setInterval(loadChart, 300_000);
+</script>
 </body>
 </html>

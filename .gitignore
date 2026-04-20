@@ -1,4 +1,5 @@
 config.json
+sensitive.json
 temp_humidity.db
 static/plot.png
 __pycache__/

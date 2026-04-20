@@ -1,4 +1,5 @@
 {
-    "access_token": "ACCESS_TOKEN_FROM_demo.thingsboard.io",
-    "gpio_pin": 22
+    "gpio_pin": 22,
+    "monitor_name": "<Monitor Name>",
+    "read_interval_seconds": 60
 }

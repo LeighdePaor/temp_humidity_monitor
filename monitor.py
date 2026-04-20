@@ -2,111 +2,110 @@
 
 import time
 import sqlite3
-import board
-import adafruit_dht
-from datetime import datetime
-from tb_device_mqtt import TBDeviceMqttClient
+import board  # pyright: ignore[reportMissingImports]
+import adafruit_dht  # pyright: ignore[reportMissingImports]
 import json
+import logging
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional, Tuple
 
-def init_local_db():
-    conn = sqlite3.connect('temp_humidity.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS readings 
-                 (timestamp TEXT, temperature REAL, humidity REAL)''')
-    conn.commit()
-    conn.close()
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger(__name__)
 
-def load_config(config_file='config.json'):
+BASE_DIR = Path(__file__).parent
+CONFIG_FILE = BASE_DIR / 'config.json'
+DB_FILE = BASE_DIR / 'temp_humidity.db'
+
+
+def load_config():
     try:
-        with open(config_file, 'r') as f:
+        with open(CONFIG_FILE) as f:
             config = json.load(f)
-            if 'access_token' not in config or 'gpio_pin' not in config:
-                raise KeyError("Missing 'access_token' or 'gpio_pin' in config")
-            return config['access_token'], config['gpio_pin']
+        if 'gpio_pin' not in config:
+            raise KeyError("Missing 'gpio_pin' in config")
+        return config
     except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
-        print(f"Config error: {e}")
-        exit(1)
+        logger.error(f"Config error: {e}")
+        sys.exit(1)
 
-def store_local_data(timestamp, temp, hum):
-    conn = sqlite3.connect('temp_humidity.db')
-    c = conn.cursor()
-    c.execute("INSERT INTO readings VALUES (?, ?, ?)", (timestamp, temp, hum))
-    conn.commit()
-    conn.close()
 
-def store_cloud_data(client, temp, hum):
-    try:
-        if not client.is_connected():
-            print("Connection lost, reconnecting to ThingsBoard...")
-            client.connect()
-        client.send_telemetry({"temperature": temp, "humidity": hum})
-        print("Telemetry sent successfully")
-    except Exception as e:
-        print(f"Failed to send telemetry: {e}")
+def init_db():
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute(
+            '''CREATE TABLE IF NOT EXISTS readings (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT    NOT NULL,
+                temperature REAL  NOT NULL,
+                humidity    REAL  NOT NULL
+            )'''
+        )
+        conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_timestamp ON readings(timestamp)'
+        )
+        conn.commit()
 
-def read_sensor(dht_device):
-    max_attempts = 5
-    for attempt in range(max_attempts):
+
+def store_reading(timestamp: str, temp: float, hum: float):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute(
+            "INSERT INTO readings (timestamp, temperature, humidity) VALUES (?, ?, ?)",
+            (timestamp, temp, hum),
+        )
+        conn.commit()
+
+
+def read_sensor(dht_device: Any, max_attempts: int = 5) -> Tuple[Optional[float], Optional[float]]:
+    for attempt in range(1, max_attempts + 1):
         try:
             temp = dht_device.temperature
             hum = dht_device.humidity
-            print(f"Raw reading attempt {attempt + 1}: Temp={temp}°C, Humidity={hum}%")
-            
-            if temp is not None and hum is not None:
-                if 0 <= hum <= 100 and hum != 99.9:
-                    return temp, hum
-                else:
-                    print(f"Invalid humidity ({hum}%), retrying...")
-            else:
-                print("Null reading, retrying...")
-            
-            time.sleep(2)
+            if temp is not None and hum is not None and 0.0 <= hum <= 100.0:
+                return temp, hum
+            logger.warning(
+                f"Attempt {attempt}: invalid reading temp={temp} hum={hum}, retrying..."
+            )
         except RuntimeError as e:
-            print(f"RuntimeError on attempt {attempt + 1}: {e}, retrying...")
-            time.sleep(2)
-    
-    print("Failed to get valid reading after all attempts, returning None")
+            logger.warning(f"Attempt {attempt}: RuntimeError: {e}, retrying...")
+        time.sleep(2)
+    logger.error("All sensor read attempts failed")
     return None, None
 
+
 def main():
-    access_token, gpio_pin = load_config()
-    
-    # Initialize DHT22
+    config = load_config()
+    gpio_pin = config['gpio_pin']
+    read_interval = config.get('read_interval_seconds', 60)
+
     try:
-        pin = getattr(board, f"D{gpio_pin}")
-        dht_device = adafruit_dht.DHT22(pin, use_pulseio=False)
-        print(f"DHT22 initialized on GPIO {gpio_pin}")
+        pin: Any = getattr(board, f"D{gpio_pin}")
+        dht_device: Any = adafruit_dht.DHT22(pin, use_pulseio=False)  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
+        logger.info(f"DHT22 initialised on GPIO {gpio_pin}")
     except AttributeError:
-        print(f"Error: Invalid GPIO pin {gpio_pin}. Use a valid GPIO number (e.g., 22 for D22).")
-        exit(1)
-    
-    # ThingsBoard setup
-    THINGSBOARD_HOST = 'demo.thingsboard.io'
-    client = TBDeviceMqttClient(host=THINGSBOARD_HOST, access_token=access_token, port=1883)
-    client._client.username_pw_set(access_token)
-    
-    init_local_db()
-    
-    try:
-        client.connect()
-        print("Connected to ThingsBoard successfully!")
-    except Exception as e:
-        print(f"Initial connection failed: {e}")
-        return
-    
+        logger.error(
+            f"Invalid GPIO pin {gpio_pin}. Use a valid BCM GPIO number (e.g. 22)."
+        )
+        sys.exit(1)
+
+    init_db()
+    logger.info(f"Database initialised. Reading every {read_interval}s.")
+
     while True:
         temp, hum = read_sensor(dht_device)
-        if temp and hum:
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            store_local_data(timestamp, temp, hum)
-            store_cloud_data(client, temp, hum)
-            print(f"Temp: {temp}°C, Humidity: {hum}%")
-        else:
-            print("Skipping storage due to invalid sensor reading")
-        time.sleep(300)
+        if temp is not None and hum is not None:
+            ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            store_reading(ts, temp, hum)
+            logger.info(f"Stored: {ts}  temp={temp:.1f}°C  hum={hum:.1f}%")
+        time.sleep(read_interval)
+
 
 if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print("Shutting down...")
+        logger.info("Shutting down...")

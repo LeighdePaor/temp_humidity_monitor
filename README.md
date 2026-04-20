@@ -1,195 +1,218 @@
 # Temperature and Humidity Monitor
 
-This project monitors temperature and humidity using a DHT22 sensor connected to a Raspberry Pi. It logs data locally to an SQLite database, sends it to ThingsBoard for cloud storage, and provides a Flask-based web interface to view the latest readings and a plot of recent data. The system runs as two systemd services: one for sensor monitoring and one for the web server.
+![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%203B%2B-C51A4A)
+![Python](https://img.shields.io/badge/python-3.9%2B-3776AB)
+![Web](https://img.shields.io/badge/web-Flask%20%2B%20Gunicorn-000000)
+![TLS](https://img.shields.io/badge/TLS-Let%27s%20Encrypt-003A70)
+![Storage](https://img.shields.io/badge/storage-SQLite-003B57)
+
+A lightweight Raspberry Pi project that reads temperature and humidity from a DHT22 sensor, stores data in SQLite, and serves a secure HTTPS dashboard with interactive charts.
+
+Built for reliable home or greenhouse monitoring with a simple two-service deployment model.
 
 ## Features
 
-* Sensor: Reads temperature and humidity from a DHT22 sensor on GPIO 22.
-* Local Storage: Stores readings in temp_humidity.db (SQLite).
-* Cloud Telemetry: Sends data to ThingsBoard (demo server).
-* Web Interface: Flask app displays the latest reading and a plot (default: last hour), served via Gunicorn.
-* Deployment: Runs as systemd services on a Raspberry Pi 2B.
+- DHT22 sensor polling on configurable GPIO
+- Local SQLite time-series storage
+- Interactive browser chart (Chart.js)
+- Flask API + Gunicorn behind nginx
+- HTTPS with Let\'s Encrypt and automatic renewal
+- systemd-managed services for sensor and web layers
 
-## Prerequisites
+## Quickstart
 
-* Hardware:
-  * Raspberry Pi 2 Model B (or compatible).
-  * Waveshare DHT22 sensor (or equivalent DHT22/AM2302).
-  * Jumper wires (and optionally a 10kΩ resistor if no built-in pull-up).
-* Software:
-  * Raspberry Pi OS (tested with Buster or later).
-  * Python 3.7+.
-  * Git, SQLite, and required Python packages (see below).
+> These steps assume you are running **PowerShell** on your local machine (Windows, macOS, or Linux).
 
-## Setup
+### 0. Load sensitive values into your session
 
-### Hardware Wiring
+Copy `example.sensitive.json` to `sensitive.json` and fill in your values, then load them into PowerShell variables:
 
-Connect the DHT22 to the Raspberry Pi 2B:
+```powershell
+$s = Get-Content .\sensitive.json | ConvertFrom-Json
+$domain      = $s.domain
+$appUser     = $s.app_user
+$piIp        = $s.pi_ip_address
+$tbHost      = $s.thingsboard_host
+$accessToken = $s.access_token
+```
 
-* VCC: Pi Pin 1 (3.3V).
-* DATA: Pi Pin 15 (GPIO 22), with a 10kΩ pull-up resistor to 3.3V (if not built into the module).
-* GND: Pi Pin 6 (GND).
+All subsequent commands use these variables — you never type sensitive values by hand.
 
-### Installation
+### 1. Copy this project to your Pi
 
-1. Clone the Repository:
+```powershell
+scp -r . "${appUser}@${piIp}:~/temp_humidity_monitor/"
+```
 
-    ```bash
-    git clone https://github.com/yourusername/temp_humidity_monitor.git
-    cd temp_humidity_monitor
-    ```
+### 2. SSH to the Pi and open the project
 
-    Replace yourusername with your GitHub username if hosted there.
+```powershell
+ssh "${appUser}@${piIp}"
+```
 
-2. Install Dependencies
+Once connected:
 
-    * Update the package list and install required packages:
+```bash
+cd ~/temp_humidity_monitor
+```
 
-    ```bash
-    sudo apt update
-    sudo apt install python3-pip python3-dev sqlite3 -y
-    ```
+### 3. Install PowerShell on the Pi and set it as the default shell (Raspbian Trixie)
 
-    * Install necessary Python packages:
+Run the following on the Pi over your SSH session:
 
-    ```bash
-    sudo pip3 install adafruit-circuitpython-dht tb-device-mqtt flask matplotlib gunicorn
-    ```
+```bash
+# Install prerequisites
+sudo apt-get update
+sudo apt-get install -y curl apt-transport-https
 
-3. Configure the Project:
+# Add the Microsoft package repository
+curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
+echo "deb [arch=arm64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/microsoft-debian-bookworm-prod bookworm main" \
+    | sudo tee /etc/apt/sources.list.d/microsoft.list
 
-    * Create config.json in ~/temp_humidity_monitor:
+# Install PowerShell
+sudo apt-get update
+sudo apt-get install -y powershell
+```
 
-    ```json
-    {
-        "access_token": "YOUR_THINGSBOARD_ACCESS_TOKEN",
-        "gpio_pin": 22
-    }
-    ```
+Verify the install:
 
-    * Replace YOUR_THINGSBOARD_ACCESS_TOKEN with your ThingsBoard device access token (from demo.thingsboard.io).
+```bash
+pwsh --version
+```
 
-4. Set Up SQLite Database:
+Set PowerShell as the default shell for your user:
 
-    * The database (temp_humidity.db) is created automatically on first run.
+```bash
+chsh -s $(which pwsh)
+```
 
-### Systemd Services
+> Log out and back in for the shell change to take effect. Confirm with `echo $SHELL`.
 
-Deploy as background services:
+### 4. Confirm deployment variables in `sensitive.json`
 
-1. Sensor Service:
+Fields required by `setup.sh`:
 
-    ```bash
-    sudo nano /etc/systemd/system/temp_monitor_sensor.service
-    ```
+- `domain` — your public domain name
+- `app_user` — the Pi Linux user account
+- `pi_ip_address` — your Pi's local IP address
 
-    Paste:
+### 5. Load variables on the Pi (PowerShell)
 
-    ```ini
-    [Unit]
-    Description=Temperature and Humidity Monitor Sensor
-    After=network.target
+Once PowerShell is your shell on the Pi, load sensitive values the same way:
 
-    [Service]
-    User=pi
-    WorkingDirectory=/home/pi/temp_humidity_monitor
-    ExecStart=/usr/bin/python3 /home/pi/temp_humidity_monitor/monitor.py
-    Restart=always
-    StandardOutput=inherit
-    StandardError=inherit
+```powershell
+$s = Get-Content ~/temp_humidity_monitor/sensitive.json | ConvertFrom-Json
+$env:DOMAIN       = $s.domain
+$env:APP_USER     = $s.app_user
+$env:PI_IP        = $s.pi_ip_address
+```
 
-    [Install]
-    WantedBy=multi-user.target
-    ```
+To persist across sessions, add those lines to your PowerShell profile:
 
-    Adjust User and paths if not using pi or /home/pi.
+```powershell
+Add-Content $PROFILE "`n`$s = Get-Content ~/temp_humidity_monitor/sensitive.json | ConvertFrom-Json"
+Add-Content $PROFILE '`$env:DOMAIN = $s.domain; $env:APP_USER = $s.app_user'
+```
 
-2. Web Service:
+### 6. Run the installer
 
-    ```bash
-    sudo nano /etc/systemd/system/temp_monitor_web.service
-    ```
+```bash
+sudo bash setup.sh
+```
 
-    Paste:
+### 7. Open the dashboard
 
-    ```ini
+- [https://\<your-domain\>/]()
 
-    [Unit]
-    Description=Temperature and Humidity Monitor Web (Gunicorn)
-    After=network.target
+## Deployment Notes
 
-    [Service]
-    User=pi
-    Group=www-data
-    WorkingDirectory=/home/pi/temp_humidity_monitor
-    ExecStart=/home/pi/.local/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
-    Restart=always
+setup.sh performs full server setup in one run:
 
-    [Install]
-    WantedBy=multi-user.target
-    ```
+- Installs system packages (Python, nginx, certbot, sqlite, libgpiod2)
+- Creates a local virtual environment at .venv
+- Installs Python dependencies (Flask, Gunicorn, adafruit-circuitpython-dht)
+- Configures nginx reverse proxy to Gunicorn on 127.0.0.1:5000
+- Requests and installs Let\'s Encrypt certificates
+- Enables automatic certificate renewal (with dry-run test)
+- Creates and enables two systemd services:
+  - temp_monitor_sensor
+  - temp_monitor_web
 
-    Adjust paths if Gunicorn is installed elsewhere (check with which gunicorn).
+## Configuration
 
-3. Enable and Start Services:
+Example config.json:
 
-    ```bash
-    sudo systemctl daemon-reload
-    sudo systemctl enable temp_monitor_sensor.service
-    sudo systemctl enable temp_monitor_web.service
-    sudo systemctl start temp_monitor_sensor.service
-    sudo systemctl start temp_monitor_web.service
-    ```
+```json
+{
+  "gpio_pin": 22,
+  "monitor_name": "<Monitor Name>",
+  "read_interval_seconds": 60
+}
+```
 
-### Usage
+Fields:
 
-* Monitor Sensor:
-  * The monitor.py script runs continuously, logging data every 5 minutes.
-  * Check status:
+- gpio_pin: BCM pin used by DHT22 data pin
+- monitor_name: title shown in the dashboard
+- read_interval_seconds: sensor polling interval
 
-    ```bash
-    sudo systemctl status temp_monitor_sensor.service
-    ```
+## Hardware Wiring
 
-* Web Interface:
-  * Access at http://<raspberry_pi_ip>:5000 (e.g., <http://192.168.1.100:5000>).
-  * Displays:
-    * Latest temperature and humidity reading.
-    * Plot of the last hour’s data (default).
-    * Option to select a custom time range for the plot.
-* ThingsBoard:
-  * View telemetry on demo.thingsboard.io using your device’s dashboard.
+Typical DHT22 wiring on Raspberry Pi 3B+:
 
-### Files
+- VCC -> 3.3V (physical pin 1)
+- DATA -> GPIO 22 (physical pin 15)
+- GND -> GND (physical pin 6)
 
-* monitor.py: Sensor reading and data storage script.
-* app.py: Flask web server script.
-* config.json: Configuration file (ignored by Git).
-* temp_humidity.db: SQLite database (ignored by Git).
-* static/plot.png: Generated plot file (ignored by Git).
-* .gitignore: Excludes sensitive and temporary files.
+If your module does not include a pull-up resistor, add 10k between DATA and 3.3V.
 
-### Troubleshooting
+## API Endpoints
 
-* Sensor Issues:
-  * Verify DHT22 wiring and pull-up resistor.
-  * Check monitor.py logs (sudo journalctl -u temp_monitor_sensor.service).
-* Web Access:
-  * Ensure Gunicorn is running (sudo systemctl status temp_monitor_web.service).
-  * Check firewall if inaccessible (sudo ufw status).
-* ThingsBoard:
-  * Confirm access_token in config.json matches your device.
+- GET /api/latest
+- `GET /api/readings?start={iso_datetime}&end={iso_datetime}`
 
-## Contributing
+## Operations
 
-Feel free to fork this repo, submit issues, or send pull requests to improve the project!
+Service status:
 
-## License
+```bash
+sudo systemctl status temp_monitor_sensor
+sudo systemctl status temp_monitor_web
+sudo systemctl status nginx
+```
 
-This project is unlicensed—use it as you see fit!
+Live logs:
 
-## Notes
+```bash
+sudo journalctl -u temp_monitor_sensor -f
+sudo journalctl -u temp_monitor_web -f
+```
 
-* Paths: I assumed /home/pi —replace with /home/user if that’s your user.
-* Customization: Add sections like “Hardware Notes” or “Future Improvements” if you plan to expand.
+Certificate renewal test:
+
+```bash
+sudo certbot renew --dry-run
+```
+
+## Troubleshooting
+
+- Let\'s Encrypt fails:
+  - Check DNS points to your public IP
+  - Check router forwards ports 80 and 443 to the Pi
+  - Ensure nginx is the only service binding port 80
+- No sensor data:
+  - Check wiring and gpio_pin value
+  - Check sensor service logs
+- Dashboard has no points:
+  - Verify sensor service is running
+  - Verify temp_humidity.db is being updated
+  - Check /api/latest returns JSON
+
+## Project Layout
+
+- monitor.py: sensor read loop and database writes
+- app.py: web routes and JSON API
+- templates/index.html: browser dashboard
+- config.json: runtime settings
+- setup.sh: full deployment and HTTPS provisioning

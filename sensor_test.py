@@ -2,19 +2,24 @@ import adafruit_dht
 import board
 import time
 import json
+from pathlib import Path
 
-def load_config(config_file='config.json'):
+BASE_DIR = Path(__file__).parent
+
+
+def load_config(config_file=BASE_DIR / 'config.json'):
     try:
         with open(config_file, 'r') as f:
             config = json.load(f)
-            if 'access_token' not in config or 'gpio_pin' not in config:
-                raise KeyError("Missing 'access_token' or 'gpio_pin' in config")
-            return config['access_token'], config['gpio_pin']
+        if 'gpio_pin' not in config:
+            raise KeyError("Missing 'gpio_pin' in config")
+        return config['gpio_pin']
     except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
         print(f"Config error: {e}")
         exit(1)
 
-access_token, gpio_pin = load_config()
+
+gpio_pin = load_config()
     
 # Initialize DHT22
 try:
