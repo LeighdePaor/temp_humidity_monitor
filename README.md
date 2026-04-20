@@ -123,7 +123,7 @@ sudo bash setup.sh
 
 ### 7. Open the dashboard
 
-- [https://\<your-domain\>/]()
+- [https://\<your-domain\>/]("")
 
 ## Deployment Notes
 

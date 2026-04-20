@@ -98,6 +98,8 @@
             margin-bottom: 0.5rem;
             min-height: 1rem;
         }
+        #wrap-start,
+        #wrap-end { display: none; }
     </style>
 </head>
 <body>
@@ -134,10 +136,10 @@
             <option value="custom">Custom…</option>
         </select>
     </label>
-    <label id="wrap-start" style="display:none">Start
+    <label id="wrap-start">Start
         <input type="datetime-local" id="start">
     </label>
-    <label id="wrap-end" style="display:none">End
+    <label id="wrap-end">End
         <input type="datetime-local" id="end">
     </label>
     <button onclick="loadChart()">Update chart</button>
