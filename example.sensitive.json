@@ -1,6 +1,7 @@
 {
     "domain": "<your-domain.example.com>",
     "app_user": "<username>",
+    "letsencrypt_email": "<letsencrypt-email>",
     "pi_ip_address": "<pi-ip-address>",
     "thingsboard_host": "<thingsboard-host>",
     "access_token": "<thingsboard-access-token>"

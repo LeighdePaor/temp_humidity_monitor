@@ -61,18 +61,8 @@ cd ~/temp_humidity_monitor
 Run the following on the Pi over your SSH session:
 
 ```bash
-# Install prerequisites
-sudo apt-get update
-sudo apt-get install -y curl apt-transport-https
-
-# Add the Microsoft package repository
-curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
-echo "deb [arch=arm64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/microsoft-debian-bookworm-prod bookworm main" \
-    | sudo tee /etc/apt/sources.list.d/microsoft.list
-
-# Install PowerShell
-sudo apt-get update
-sudo apt-get install -y powershell
+chmod +x ./pwsh_setup.sh
+./pwsh_setup.sh
 ```
 
 Verify the install:
@@ -84,10 +74,13 @@ pwsh --version
 Set PowerShell as the default shell for your user:
 
 ```bash
+grep -qxF "/usr/bin/pwsh" /etc/shells || echo "/usr/bin/pwsh" | sudo tee -a /etc/shells
 chsh -s $(which pwsh)
 ```
 
 > Log out and back in for the shell change to take effect. Confirm with `echo $SHELL`.
+
+Remaining instructions assume they are running in PowerShell
 
 ### 4. Confirm deployment variables in `sensitive.json`
 
@@ -95,24 +88,27 @@ Fields required by `setup.sh`:
 
 - `domain` — your public domain name
 - `app_user` — the Pi Linux user account
+- `letsencrypt_email` — email used by Let's Encrypt for expiry notices and registration
 - `pi_ip_address` — your Pi's local IP address
 
 ### 5. Load variables on the Pi (PowerShell)
 
-Once PowerShell is your shell on the Pi, load sensitive values the same way:
+Run the helper script to load env vars from `sensitive.json`:
 
 ```powershell
-$s = Get-Content ~/temp_humidity_monitor/sensitive.json | ConvertFrom-Json
-$env:DOMAIN       = $s.domain
-$env:APP_USER     = $s.app_user
-$env:PI_IP        = $s.pi_ip_address
+./pwsh_env_setup.ps1
 ```
 
-To persist across sessions, add those lines to your PowerShell profile:
+The script does three things:
+
+- Loads `DOMAIN`, `APP_USER`, and `PI_IP` into the current session (plus optional `THINGSBOARD_HOST` and `ACCESS_TOKEN` if present)
+- Checks whether a persistent `temp_humidity_monitor` block already exists in your PowerShell profile
+- If not found, prompts you to add it
+
+For non-interactive mode (always add the persistent profile block), run:
 
 ```powershell
-Add-Content $PROFILE "`n`$s = Get-Content ~/temp_humidity_monitor/sensitive.json | ConvertFrom-Json"
-Add-Content $PROFILE '`$env:DOMAIN = $s.domain; $env:APP_USER = $s.app_user'
+./pwsh_env_setup.ps1 -Persist
 ```
 
 ### 6. Run the installer

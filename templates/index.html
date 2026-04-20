@@ -98,8 +98,6 @@
             margin-bottom: 0.5rem;
             min-height: 1rem;
         }
-        #wrap-start,
-        #wrap-end { display: none; }
     </style>
 </head>
 <body>
@@ -133,14 +131,9 @@
             <option value="6">Last 6 hours</option>
             <option value="24" selected>Last 24 hours</option>
             <option value="168">Last 7 days</option>
-            <option value="custom">Custom…</option>
+            <option value="720">Last 30 days</option>
+            <option value="8760">Last 1 year</option>
         </select>
-    </label>
-    <label id="wrap-start">Start
-        <input type="datetime-local" id="start">
-    </label>
-    <label id="wrap-end">End
-        <input type="datetime-local" id="end">
     </label>
     <button onclick="loadChart()">Update chart</button>
 </div>
@@ -152,43 +145,27 @@
 
 <script>
 const preset = document.getElementById('preset');
-const wrapStart = document.getElementById('wrap-start');
-const wrapEnd   = document.getElementById('wrap-end');
 
 preset.addEventListener('change', () => {
-    const custom = preset.value === 'custom';
-    wrapStart.style.display = custom ? '' : 'none';
-    wrapEnd.style.display   = custom ? '' : 'none';
-    if (!custom) loadChart();
+    loadChart();
 });
 
-function isoLocal(d) {
-    // Returns datetime-local string in local time
-    const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-function getRange() {
-    if (preset.value === 'custom') {
-        return { start: document.getElementById('start').value,
-                 end:   document.getElementById('end').value };
-    }
-    const end   = new Date();
-    const start = new Date(end - preset.value * 3600 * 1000);
-    return { start: isoLocal(start), end: isoLocal(end) };
+function getSelectedHours() {
+    return Number(preset.value);
 }
 
 let chart = null;
 
 async function loadChart() {
     const status = document.getElementById('status');
-    const { start, end } = getRange();
+    const hours = getSelectedHours();
+    const presetLabel = preset.options[preset.selectedIndex].text;
     status.textContent = 'Loading…';
     try {
-        const res = await fetch(`/api/readings?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+        const res = await fetch(`/api/readings?hours=${encodeURIComponent(hours)}`);
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
-        status.textContent = `${data.length} readings from ${start.replace('T',' ')} to ${end.replace('T',' ')}`;
+        status.textContent = `${data.length} readings (${presetLabel}, Raspberry Pi local time)`;
         renderChart(data);
     } catch (e) {
         status.textContent = `Error: ${e.message}`;
@@ -196,7 +173,7 @@ async function loadChart() {
 }
 
 function renderChart(data) {
-    const labels = data.map(r => new Date(r.timestamp));
+    const labels = data.map(r => r.timestamp);
     const temps  = data.map(r => r.temperature);
     const hums   = data.map(r => r.humidity);
 
@@ -239,7 +216,7 @@ function renderChart(data) {
             },
             scales: {
                 x: {
-                    type: 'time',
+                    type: 'category',
                     ticks: { color: '#64748b' },
                     grid:  { color: '#1e293b' },
                 },

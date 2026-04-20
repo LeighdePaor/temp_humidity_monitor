@@ -45,21 +45,45 @@ def index():
 
 @app.route('/api/readings')
 def api_readings():
-    """Return JSON readings for the given ISO 8601 start/end range (max 30 days).
-    Defaults to the last 24 hours when no parameters are supplied."""
-    try:
-        now = datetime.now()
-        end_dt = datetime.fromisoformat(
-            request.args.get('end', now.strftime('%Y-%m-%dT%H:%M:%S'))
-        )
-        start_dt = datetime.fromisoformat(
-            request.args.get('start', (end_dt - timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%S'))
-        )
-    except ValueError:
-        abort(400, description="Invalid date format. Use ISO 8601 (e.g. 2026-04-20T10:00:00).")
+    """Return JSON readings.
 
-    if (end_dt - start_dt).total_seconds() > 30 * 86400:
-        abort(400, description="Date range must not exceed 30 days.")
+    Supports either:
+    - `hours=<int>`: last N hours based on the Raspberry Pi system clock
+    - `start`/`end`: ISO 8601 range
+
+    Defaults to last 24 hours. Maximum range is 366 days.
+    """
+    max_seconds = 366 * 86400
+    hours_param = request.args.get('hours')
+
+    if hours_param is not None:
+        try:
+            hours = int(hours_param)
+        except ValueError:
+            abort(400, description="Invalid hours value. Use a positive integer.")
+
+        if hours <= 0:
+            abort(400, description="Hours must be greater than zero.")
+
+        if hours * 3600 > max_seconds:
+            abort(400, description="Date range must not exceed 366 days.")
+
+        end_dt = datetime.now()
+        start_dt = end_dt - timedelta(hours=hours)
+    else:
+        try:
+            now = datetime.now()
+            end_dt = datetime.fromisoformat(
+                request.args.get('end', now.strftime('%Y-%m-%dT%H:%M:%S'))
+            )
+            start_dt = datetime.fromisoformat(
+                request.args.get('start', (end_dt - timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%S'))
+            )
+        except ValueError:
+            abort(400, description="Invalid date format. Use ISO 8601 (e.g. 2026-04-20T10:00:00).")
+
+        if (end_dt - start_dt).total_seconds() > max_seconds:
+            abort(400, description="Date range must not exceed 366 days.")
 
     start_str = start_dt.strftime('%Y-%m-%d %H:%M:%S')
     end_str = end_dt.strftime('%Y-%m-%d %H:%M:%S')

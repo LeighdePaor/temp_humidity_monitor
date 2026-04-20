@@ -3,7 +3,7 @@
 # setup.sh - Raspberry Pi 3B+ setup for temp_humidity_monitor
 # Run as  : sudo bash setup.sh   (interactive, over SSH)
 #
-# Sensitive values (domain, app_user) are loaded from sensitive.json.
+# Sensitive values (domain, app_user, letsencrypt_email) are loaded from sensitive.json.
 # Copy example.sensitive.json -> sensitive.json and fill in your values.
 # =============================================================================
 set -euo pipefail
@@ -24,8 +24,27 @@ fi
 
 DOMAIN=$(jq -r '.domain' "${SENSITIVE_FILE}")
 APP_USER=$(jq -r '.app_user' "${SENSITIVE_FILE}")
+LETSENCRYPT_EMAIL=$(jq -r '.letsencrypt_email' "${SENSITIVE_FILE}")
 APP_DIR="/home/${APP_USER}/temp_humidity_monitor"
 VENV_DIR="${APP_DIR}/.venv"
+
+require_sensitive_value() {
+    local key="$1"
+    local value="$2"
+    if [[ -z "${value}" || "${value}" == "null" ]]; then
+        red "Missing '${key}' in ${SENSITIVE_FILE}"
+        exit 1
+    fi
+}
+
+require_sensitive_value "domain" "${DOMAIN}"
+require_sensitive_value "app_user" "${APP_USER}"
+require_sensitive_value "letsencrypt_email" "${LETSENCRYPT_EMAIL}"
+
+if [[ "${LETSENCRYPT_EMAIL}" != *"@"* ]]; then
+    red "Invalid letsencrypt_email in ${SENSITIVE_FILE}: ${LETSENCRYPT_EMAIL}"
+    exit 1
+fi
 
 # ---------- colour helpers ---------------------------------------------------
 green()  { echo -e "\033[32m$*\033[0m"; }
@@ -80,6 +99,27 @@ setup_app() {
 }
 
 # =============================================================================
+# 2.5 Preflight checks - fail fast on missing web runtime dependencies
+# =============================================================================
+preflight_web_runtime() {
+    green "==> Running web runtime preflight checks..."
+
+    if [[ ! -x "${VENV_DIR}/bin/gunicorn" ]]; then
+        red "Missing Gunicorn executable: ${VENV_DIR}/bin/gunicorn"
+        red "Run setup again or install it manually in the venv: ${VENV_DIR}/bin/pip install gunicorn"
+        exit 1
+    fi
+
+    if ! "${VENV_DIR}/bin/python" -c "import flask, gunicorn" >/dev/null 2>&1; then
+        red "Python dependency check failed in ${VENV_DIR}. Flask/Gunicorn import failed."
+        red "Reinstall dependencies: ${VENV_DIR}/bin/pip install flask gunicorn adafruit-circuitpython-dht"
+        exit 1
+    fi
+
+    green "    Preflight checks passed."
+}
+
+# =============================================================================
 # 3. nginx - initial HTTP-only config (certbot will upgrade to HTTPS)
 # =============================================================================
 configure_nginx_http() {
@@ -122,10 +162,7 @@ NGINX
 # =============================================================================
 obtain_cert() {
     green "==> Obtaining Let's Encrypt certificate for ${DOMAIN}..."
-    yellow "   You will be prompted for an email address."
-    echo ""
-
-    read -rp "Enter your email address for Let's Encrypt expiry notices: " CERT_EMAIL
+    yellow "   Using email from sensitive.json: ${LETSENCRYPT_EMAIL}"
 
     certbot --nginx \
         --non-interactive \
@@ -133,7 +170,7 @@ obtain_cert() {
         --redirect \
         --hsts \
         --domain "${DOMAIN}" \
-        --email "${CERT_EMAIL}"
+        --email "${LETSENCRYPT_EMAIL}"
 
     green "==> Certificate obtained. Running renewal dry run..."
     certbot renew --dry-run
@@ -170,6 +207,11 @@ UNIT
 # =============================================================================
 create_service_web() {
     green "==> Creating systemd service: temp_monitor_web"
+
+    # Remove legacy overrides/units so ExecStart is pinned to the venv every run.
+    rm -rf /etc/systemd/system/temp_monitor_web.service.d
+    rm -f /etc/systemd/system/temp_monitor_web.service
+
     cat > /etc/systemd/system/temp_monitor_web.service <<UNIT
 [Unit]
 Description=Temperature and Humidity Monitor Web (Gunicorn / Flask)
@@ -179,6 +221,7 @@ After=network.target
 User=${APP_USER}
 Group=www-data
 WorkingDirectory=${APP_DIR}
+Environment=PATH=${VENV_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=${VENV_DIR}/bin/gunicorn \
     --workers 2 \
     --bind 127.0.0.1:5000 \
@@ -202,6 +245,15 @@ UNIT
 start_services() {
     green "==> Enabling and starting services..."
     systemctl daemon-reload
+
+    # Verify the effective ExecStart still points to the venv gunicorn binary.
+    WEB_EXECSTART=$(systemctl show temp_monitor_web -p ExecStart --value || true)
+    if [[ "${WEB_EXECSTART}" != *"${VENV_DIR}/bin/gunicorn"* ]]; then
+        red "temp_monitor_web ExecStart is not pinned to ${VENV_DIR}/bin/gunicorn"
+        red "Resolved ExecStart: ${WEB_EXECSTART}"
+        exit 1
+    fi
+
     systemctl enable temp_monitor_sensor temp_monitor_web
     systemctl restart temp_monitor_sensor temp_monitor_web
     systemctl reload nginx
@@ -240,6 +292,7 @@ print_summary() {
 require_root
 install_packages
 setup_app
+preflight_web_runtime
 configure_nginx_http
 obtain_cert
 create_service_monitor
