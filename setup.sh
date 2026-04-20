@@ -27,6 +27,7 @@ APP_USER=$(jq -r '.app_user' "${SENSITIVE_FILE}")
 LETSENCRYPT_EMAIL=$(jq -r '.letsencrypt_email' "${SENSITIVE_FILE}")
 APP_DIR="/home/${APP_USER}/temp_humidity_monitor"
 VENV_DIR="${APP_DIR}/.venv"
+TLS_STATUS="not-requested"
 
 require_sensitive_value() {
     local key="$1"
@@ -73,7 +74,7 @@ install_packages() {
         libgpiod2 \
         nginx \
         certbot python3-certbot-nginx \
-        git curl jq
+        git curl jq dnsutils
 
     pip3 cache purge 2>/dev/null || true
 }
@@ -164,17 +165,41 @@ obtain_cert() {
     green "==> Obtaining Let's Encrypt certificate for ${DOMAIN}..."
     yellow "   Using email from sensitive.json: ${LETSENCRYPT_EMAIL}"
 
-    certbot --nginx \
+    local a_records
+    local aaaa_records
+    a_records=$(dig +short A "${DOMAIN}" @1.1.1.1 | tr -d '\r' || true)
+    aaaa_records=$(dig +short AAAA "${DOMAIN}" @1.1.1.1 | tr -d '\r' || true)
+
+    if [[ -z "${a_records}" && -z "${aaaa_records}" ]]; then
+        TLS_STATUS="skipped-dns-not-ready"
+        red "No public DNS records found for ${DOMAIN} (A/AAAA lookup returned NXDOMAIN or empty)."
+        yellow "Skipping certbot for now so setup can complete."
+        yellow "Create DNS records for ${DOMAIN} and rerun:"
+        yellow "  sudo certbot --nginx --non-interactive --agree-tos --redirect --hsts --domain ${DOMAIN} --email ${LETSENCRYPT_EMAIL}"
+        return 0
+    fi
+
+    if certbot --nginx \
         --non-interactive \
         --agree-tos \
         --redirect \
         --hsts \
         --domain "${DOMAIN}" \
-        --email "${LETSENCRYPT_EMAIL}"
-
-    green "==> Certificate obtained. Running renewal dry run..."
-    certbot renew --dry-run
-    green "    Auto-renewal dry run passed."
+        --email "${LETSENCRYPT_EMAIL}"; then
+        TLS_STATUS="enabled"
+        green "==> Certificate obtained. Running renewal dry run..."
+        if certbot renew --dry-run; then
+            green "    Auto-renewal dry run passed."
+        else
+            yellow "    Renewal dry run failed. Check certbot logs."
+        fi
+    else
+        TLS_STATUS="failed"
+        red "Certbot failed. Continuing setup so services stay available over HTTP."
+        yellow "Check: /var/log/letsencrypt/letsencrypt.log"
+        yellow "Retry later with:"
+        yellow "  sudo certbot --nginx --non-interactive --agree-tos --redirect --hsts --domain ${DOMAIN} --email ${LETSENCRYPT_EMAIL}"
+    fi
 }
 
 # =============================================================================
@@ -272,6 +297,7 @@ print_summary() {
     echo "  Sensor service: $(systemctl is-active temp_monitor_sensor)"
     echo "  Web service   : $(systemctl is-active temp_monitor_web)"
     echo "  nginx         : $(systemctl is-active nginx)"
+    echo "  TLS status    : ${TLS_STATUS}"
     echo ""
     yellow "Certificate auto-renewal:"
     systemctl is-enabled certbot.timer 2>/dev/null \
