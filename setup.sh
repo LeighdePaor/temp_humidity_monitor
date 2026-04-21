@@ -27,6 +27,8 @@ APP_USER=$(jq -r '.app_user' "${SENSITIVE_FILE}")
 LETSENCRYPT_EMAIL=$(jq -r '.letsencrypt_email' "${SENSITIVE_FILE}")
 APP_DIR="/home/${APP_USER}/temp_humidity_monitor"
 VENV_DIR="${APP_DIR}/.venv"
+DEVICE_CERT_PATH="/etc/ssl/certs/device.crt"
+DEVICE_KEY_PATH="/etc/ssl/private/device.key"
 TLS_STATUS="not-requested"
 
 require_sensitive_value() {
@@ -152,6 +154,55 @@ NGINX
     nginx -t
     systemctl enable nginx
     systemctl reload nginx
+}
+
+# =============================================================================
+# 3.1 nginx - HTTPS config using device cert copied to /etc/ssl
+# =============================================================================
+configure_nginx_local_cert() {
+    green "==> Writing nginx config using local device certificate..."
+
+    if [[ ! -f "${DEVICE_CERT_PATH}" || ! -f "${DEVICE_KEY_PATH}" ]]; then
+        red "Local certificate files were not found."
+        red "Expected: ${DEVICE_CERT_PATH} and ${DEVICE_KEY_PATH}"
+        exit 1
+    fi
+
+    cat > /etc/nginx/sites-available/temp_monitor <<NGINX
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${DOMAIN};
+
+    ssl_certificate     ${DEVICE_CERT_PATH};
+    ssl_certificate_key ${DEVICE_KEY_PATH};
+
+    location / {
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Real-IP         \$remote_addr;
+        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 30s;
+    }
+}
+NGINX
+
+    ln -sf /etc/nginx/sites-available/temp_monitor \
+            /etc/nginx/sites-enabled/temp_monitor
+    rm -f /etc/nginx/sites-enabled/default
+
+    nginx -t
+    systemctl enable nginx
+    systemctl reload nginx
+    TLS_STATUS="enabled-local-cert"
 }
 
 # =============================================================================
@@ -319,8 +370,12 @@ require_root
 install_packages
 setup_app
 preflight_web_runtime
-configure_nginx_http
-obtain_cert
+if [[ -f "${DEVICE_CERT_PATH}" && -f "${DEVICE_KEY_PATH}" ]]; then
+    configure_nginx_local_cert
+else
+    configure_nginx_http
+    obtain_cert
+fi
 create_service_monitor
 create_service_web
 start_services

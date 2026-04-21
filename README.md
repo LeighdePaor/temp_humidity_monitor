@@ -163,6 +163,39 @@ setup.sh performs full server setup in one run:
   - temp_monitor_sensor
   - temp_monitor_web
 
+### Using A Copied Device Certificate (From SSL-SelfSigned)
+
+If you copy a certificate/key pair to the Pi at these paths:
+
+- `/etc/ssl/certs/device.crt`
+- `/etc/ssl/private/device.key`
+
+then `setup.sh` now detects them and writes nginx TLS config for HTTPS on 443
+using those files instead of requesting a Let's Encrypt certificate.
+
+After copying the certs, run:
+
+```bash
+cd ~/temp_humidity_monitor
+sudo bash setup.sh
+```
+
+This will configure nginx with:
+
+- `listen 443 ssl`
+- `ssl_certificate /etc/ssl/certs/device.crt`
+- `ssl_certificate_key /etc/ssl/private/device.key`
+
+and an HTTP to HTTPS redirect on port 80.
+
+Quick verification on the Pi:
+
+```bash
+sudo nginx -t
+sudo ss -tlnp | grep :443
+curl -vk https://localhost
+```
+
 ## Configuration
 
 Example config.json:
