@@ -4,3 +4,5 @@ temp_humidity.db
 static/plot.png
 __pycache__/
 *.pyc
+.vscode/
+*.code-workspace
